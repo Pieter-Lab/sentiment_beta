@@ -1,0 +1,13 @@
+{
+    "name": "vender/sentiment_beta",
+    "description": "Sentiment Analysis Tool",
+    "authors": [
+        {
+            "name": "Pieter Botha",
+            "email": "pieter@lab.co.uk"
+        }
+    ],
+    "require": {
+		"envms/fluentpdo": "1.1.*"	
+	}
+}
