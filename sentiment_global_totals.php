@@ -17,13 +17,13 @@ try {
     //Setup new connection
     $dbh = new PDO($dsn, $user, $password);
     //Get Articles
-    $res = $dbh->query('SELECT * FROM articles order by date_published DESC LIMIT 0, 3')->fetchAll();
+    $res = $dbh->query('SELECT * FROM sentiment_global_totals order by `count` DESC')->fetchAll();
     //Check
     if($res && !empty($res)){
         header('Content-Type: application/json');
         echo json_encode(['status'=>'success','content'=>$res]);
     }else{
-        echo json_encode(['status'=>"fail",'reason'=>'No ARticles']);
+        echo json_encode(['status'=>"fail",'reason'=>'No Sentiment Totals']);
     }
 } catch (PDOException $e) { //Catch the exception
     //Kill
