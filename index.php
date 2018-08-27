@@ -17,7 +17,7 @@ try {
     //Setup new connection
     $dbh = new PDO($dsn, $user, $password);
     //Get Articles
-    $res = $dbh->query('SELECT * FROM articles order by date_published DESC LIMIT 0, 3')->fetchAll();
+    $res = $dbh->query('SELECT * FROM articles order by date_published DESC LIMIT 0, 9')->fetchAll();
     //Check
     if($res && !empty($res)){
         header('Content-Type: application/json');

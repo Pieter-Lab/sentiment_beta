@@ -141,10 +141,19 @@ class sentimentWrapper extends UTILS {
                                 $response = self::extractNaturalLanguage($item['title']);
                                 //Test
                                 if($response && !empty($response)){
+                                    //Sentiment extraction
                                     if(isset($response->sentiment) && !empty($response->sentiment)){
                                         foreach ($response->sentiment as $sentiment){
                                             //Insert
                                             self::insertSentimentLinkage($item,$sentiment->label);
+                                        }
+                                    }
+                                    //Keywords Extraction
+                                    if(isset($response->keywords) && !empty($response->keywords)){
+                                        //loop
+                                        foreach($response->keywords as $keyword){
+                                            //Insert
+                                            self::insertSetTopicLinkage($item,$keyword);
                                         }
                                     }
                                 }else{
@@ -156,10 +165,19 @@ class sentimentWrapper extends UTILS {
                             $response = self::extractNaturalLanguage($item['title']);
                             //Test
                             if($response && !empty($response)){
+                                //Sentiment extraction
                                 if(isset($response->sentiment) && !empty($response->sentiment)){
                                     foreach ($response->sentiment as $sentiment){
                                         //Insert
                                         self::insertSentimentLinkage($item,$sentiment->label);
+                                    }
+                                }
+                                //Keywords Extraction
+                                if(isset($response->keywords) && !empty($response->keywords)){
+                                    //loop
+                                    foreach($response->keywords as $keyword){
+                                        //Insert
+                                        self::insertSetTopicLinkage($item,$keyword);
                                     }
                                 }
                             }else{
@@ -177,7 +195,45 @@ class sentimentWrapper extends UTILS {
             exit($e->getMessage().PHP_EOL.$e->getLine());
         }
     }
-
+    /**
+     * Checks and creates linkage to topics
+     * @param $item
+     * @param $keyword
+     */
+    private static function insertSetTopicLinkage($item,$keyword){
+        //try
+        try{
+            //setter
+            $topic_pk_id = false;
+            //test
+            $tesRes = self::dbh()->query('SELECT pk_id FROM topic WHERE name = "'.addslashes($keyword->text).'"')->fetch();
+            //Test
+            if(empty($tesRes)){
+                //insert new topic
+                self::dbh()->exec('INSERT INTO `topic`(`name`)VALUES("'.addslashes($keyword->text).'")');
+                $tesRes = self::dbh()->query('SELECT pk_id FROM topic WHERE name = "'.addslashes($keyword->text).'"')->fetch();
+                //get pk_id of new topic
+                $topic_pk_id = $tesRes['pk_id'];
+            }else{
+                //get pk_id of new topic
+                $topic_pk_id = $tesRes['pk_id'];
+            }
+            //Test
+            if($topic_pk_id){
+                //Check if the article pk if and the topic pk id are not in the pivot table
+                $testRes = self::dbh()->query('SELECT pk_id FROM pivot_article_topic WHERE fk_article_id = '.$item['pk_id'].' AND fk_topic_id = '.$topic_pk_id)->fetch();
+                //test
+                if(empty($testRes)){
+                    //if not then create the link
+                    self::dbh()->exec('INSERT INTO `pivot_article_topic`(`fk_article_id`,`fk_topic_id`,`relevance`)VALUES('.$item['pk_id'].','.$topic_pk_id.',"'.$keyword->relevance.'")');
+                    //Speak
+                    self::speak("************** Article LIKAGE TO TOPIC ".$keyword->text." COMPLETED FOR ".substr($item['title'],0,20)." ***********");
+                }
+            }
+        }catch(Exception $e){
+            exit($e->getMessage().PHP_EOL.$e->getLine());
+        }
+    }
     /**
      * Links Articles to their tones
      * @param $item
@@ -296,21 +352,34 @@ class LIB extends UTILS {
             //HOlder
             $holder = [];
             //get countries
-            $res = self::dbh()->query('SELECT C.name, C.pk_id FROM countries AS C ORDER BY C.name')->fetchAll();
+            $res = self::dbh()->query('SELECT C.name, C.pk_id, C.code FROM countries AS C ORDER BY C.name ASC')->fetchAll();
             //loop
             foreach ($res as $country) {
                 //Set
-                $holder[$country['pk_id']] = [];
+                $holder[$country['name']] = [];
                 //ADD
-                $holder[$country['pk_id']]['name'] = $country['name'];
+                $holder[$country['name']]['name'] = $country['name'];
+                $holder[$country['name']]['code'] = $country['code'];
                 //Set the sentiments
-                $holder[$country['pk_id']]['sentiments'] = [];
+                $holder[$country['name']]['sentiments'] = [];
                 //Run subquery
                 $sentTotalsRes = self::dbh()->query('SELECT SENT.name, COUNT(ART.pk_id) as total FROM article ART LEFT JOIN pivot_article_sentiment AS PAS on (PAS.pk_id=ART.pk_id) LEFT JOIN sentiment as SENT on (SENT.pk_id=PAS.fk_sentiment_id) WHERE ART.fk_country_id = '.$country['pk_id'].' GROUP BY PAS.fk_sentiment_id ORDER BY total DESC')->fetchAll();
+                //total
+                $total = 0;
+                //loop
+                foreach ($sentTotalsRes as $sentTotal){$total = $total + $sentTotal['total'];}
+                //Break count
+                $brCount = 0;
                 //loop
                 foreach ($sentTotalsRes as $sentTotal){
+                    //LImit Sentiment Display
+                    if($brCount>=3){
+                        break;
+                    }
                     //Add
-                    $holder[$country['pk_id']]['sentiments'][$sentTotal['name']] = $sentTotal['total'];
+                    $holder[$country['name']]['sentiments'][] = ['percentage'=>round(( $sentTotal['total'] / $total ) * 100),'name'=>$sentTotal['name']];
+                    //add
+                    $brCount++;
                 }
             }
             //RETURN
@@ -415,6 +484,94 @@ class LIB extends UTILS {
             }
         }else{
             return false;
+        }
+    }
+}
+
+/**
+ * Handles function for the tpics calls
+ * Class TOPIC
+ */
+class TOPIC extends LIB {
+    /**
+     * COunt threshold
+     * @var int
+     */
+    private static $topicThreshold = 3;
+
+    /**
+     * Get available Topics
+     * @return array
+     */
+    public static function getTopics(){
+        try{
+            //Get all Topics of Highest Rank
+            $query = 'SELECT PAT.fk_topic_id,COUNT(PAT.fk_article_id) as total FROM pivot_article_topic AS PAT GROUP BY PAT.fk_topic_id ORDER BY total DESC LIMIT 0, 5';
+            $stmt = self::dbh()->query($query)->fetchAll();
+            $topics = [];
+            foreach($stmt as $item){
+
+                $stmt2 = self::dbh()->query('SELECT `pk_id`,`name` FROM `topic` WHERE `pk_id`='.$item['fk_topic_id'].' ORDER BY `name`')->fetch();
+                $topics[] = ['pk_id'=>$stmt2['pk_id'],'name'=>$stmt2['name']];
+            }
+            return $topics;
+        }catch(Exception $e){
+            exit($e->getMessage().PHP_EOL.$e->getLine());
+        }
+    }
+
+    /**
+     * Get the Topiccs and their sentiment toals
+     * @return array
+     */
+    public static function getTopicGlobalTotals(){
+        //Try
+        try{
+            //Holder
+            $list = [];
+            //Get Topics
+            $topics = self::getTopics();
+            //Loop
+            foreach ($topics as $topic){
+                //Add the Sentiment Count to the Topics
+                $stm = self::dbh()->query('SELECT 
+                                                    `SENT`.`name` AS `name`,
+                                                    COUNT(`PAT`.`fk_article_id`) AS `total`,
+                                                    ROUND(((COUNT(`PAT`.`fk_article_id`) / (SELECT 
+                                                                    COUNT(`pivot_article_topic`.`fk_article_id`)
+                                                                FROM
+                                                                    `pivot_article_topic`)) * 100),
+                                                            0) AS `percentage`
+                                                FROM
+                                                    (((`topic` `TOP`
+                                                    LEFT JOIN `pivot_article_topic` `PAT` ON ((`PAT`.`fk_topic_id` = `TOP`.`pk_id`)))
+                                                    LEFT JOIN `pivot_article_sentiment` `PAS` ON ((`PAS`.`fk_article_id` = `PAT`.`fk_article_id`)))
+                                                    LEFT JOIN `sentiment` `SENT` ON ((`SENT`.`pk_id` = `PAS`.`fk_sentiment_id`)))
+                                                WHERE
+                                                    ((`SENT`.`name` IS NOT NULL)
+                                                        AND (`TOP`.`pk_id` = '.$topic['pk_id'].'))
+                                                GROUP BY `SENT`.`name`
+                                                ORDER BY `percentage` DESC')->fetchAll();
+                //Test
+                if(!empty($stm)){
+                    //test total articles held
+                    $total = 0;
+                    foreach($stm as $t){
+                        $total = $total + $t['total'];
+                    }
+                    //Set THreshold
+                    if($total >= self::$topicThreshold){
+                        $list[] = [
+                            'name'=>$topic['name'],
+                            'sentiments' => $stm
+                        ];
+                    }
+                }
+            }
+            //return found Topics
+            return $list;
+        }catch(Exception $e){
+            exit($e->getMessage().PHP_EOL.$e->getLine());
         }
     }
 }

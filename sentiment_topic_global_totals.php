@@ -13,7 +13,7 @@ header("Content-Type: application/json");
 /* Try the Connection */
 try {
     //Run Lib Function
-    $res = (array) LIB::getCountrySentimentTotals();
+    $res = TOPIC::getTopicGlobalTotals();
     //Check
     if($res && !empty($res)){
         header('Content-Type: application/json');
